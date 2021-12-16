@@ -1,0 +1,193 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <SoftwareSerial.h>
+
+SoftwareSerial mySerial(2, 3);
+
+unsigned long T1, T2;
+unsigned long end_time;
+double Actual_time ;
+double Actual_time_1[2] = {0, 0};
+unsigned long distance = 100;
+double speed = 0.0;
+int card_id;
+int count = 0;
+
+String str1[2] = {"45 27 72 2A", "A0 62 2F 32"};
+String str2[2] = {"+919912095651", "+919381698917"};
+unsigned long Time_1[2] = {0, 0};
+unsigned long Time_2[2] = {0, 0};
+
+int flag1 = 0;
+int flag2 = 0;
+
+#define RST_PIN_1         9          // Configurable, see typical pin layout above
+#define SS_PIN_1          10         // Configurable, see typical pin layout above
+
+
+
+#define RST_PIN_2         7              // Configurable, see typical pin layout above
+#define SS_PIN_2          8
+
+MFRC522 mfrc522R1(SS_PIN_1, RST_PIN_1);  // Create MFRC522 instance
+MFRC522 mfrc522R2(SS_PIN_2, RST_PIN_2);
+
+void setup() {
+  Serial.begin(9600);     // Initialize serial communications with the PC
+  mySerial.begin(9600);   // baud rate of gsm/gprs module
+  while (!Serial);        // Do nothing if no serial port is opened (added for Arduinos based on ATMEGA32U4)
+  SPI.begin();            // Init SPI bus
+  mfrc522R1.PCD_Init();   // Init MFRC522R1
+  mfrc522R2.PCD_Init();   // Init MFRC522R2
+}
+
+void loop()
+{
+
+  RFID1();
+  RFID2();
+
+}
+
+
+
+void sendSms() {
+  delay(5000);
+  mySerial.println("AT+CMGF=1");                            //Sets the GSM Module in Text Mode
+  delay(1000);
+  String abc = str2[card_id];
+  String xyz = "AT + CMGS = \""+abc+"\"";
+  Serial.println(str2[card_id]); 
+  mySerial.println(xyz);
+  //mySerial.println("AT+CMGS=\"+917989148187\"\r");
+  //Serial.println("Message sent");
+  delay(1000);
+  mySerial.println("- speed limit exceeded");             // SMS text 
+  delay(1000);
+  mySerial.println(str1[card_id]);
+  delay(1000);
+  mySerial.println((char)26);                               // ASCII code of CTRL+Z for saying the end of sms to  the module
+  delay(100);
+}
+
+
+
+double calculateSpeed() {
+  double x, y;
+  x = Time_1[card_id];
+  y = Time_2[card_id];
+  Actual_time = (y - x) / 1000.00;
+  speed = 3000 / (Actual_time * 1.0);
+  speed = speed * 0.036 ;
+  return speed;
+
+}
+
+void RFID1() {
+  if (!mfrc522R1.PICC_IsNewCardPresent())           
+  {
+    return;                         //returns until a new card is present 
+  }
+ 
+  if ( ! mfrc522R1.PICC_ReadCardSerial())
+  {
+    return;
+  }
+  T1 = millis();
+  flag1 = 1;
+  count += 1;
+  
+  Serial.print("UID tag at first Reader :");
+  String content = "";
+  byte letter;
+  for (byte i = 0; i < mfrc522R1.uid.size; i++)
+  {
+    Serial.print(mfrc522R1.uid.uidByte[i] < 0x10 ? " 0" : " ");
+    Serial.print(mfrc522R1.uid.uidByte[i], HEX);
+    content.concat(String(mfrc522R1.uid.uidByte[i] < 0x10 ? " 0" : " "));
+    content.concat(String(mfrc522R1.uid.uidByte[i], HEX));
+  }
+  Serial.println();
+  //Serial.print("Message : ");
+  content.toUpperCase();
+
+  for (int i = 0; i < 2; i++) {
+
+
+
+
+
+    if (content.substring(1) == str1[i]) //change here the UID of the card/cards that you want to give access
+    {
+      Time_1[i] = T1;
+    }
+
+    else {
+      continue;
+    }
+  }
+  delay(1000);
+}
+
+
+
+
+void RFID2() {
+  if (!(mfrc522R2.PICC_IsNewCardPresent() && flag1 == 1))
+  {
+    return;
+  }
+  if ( ! mfrc522R2.PICC_ReadCardSerial())
+  {
+    return;
+  }
+  T2 = millis();
+  flag2 = 1;
+  Serial.print("UID tag at second reader :");
+  String content = "";
+  byte letter;
+  for (byte i = 0; i < mfrc522R2.uid.size; i++)
+  {
+    Serial.print(mfrc522R2.uid.uidByte[i] < 0x10 ? " 0" : " ");
+    Serial.print(mfrc522R2.uid.uidByte[i], HEX);
+    content.concat(String(mfrc522R2.uid.uidByte[i] < 0x10 ? " 0" : " "));
+    content.concat(String(mfrc522R2.uid.uidByte[i], HEX));
+  }
+  Serial.println();
+  content.toUpperCase();
+
+  for (int i = 0; i < 2; i++) {
+    if (content.substring(1) == str1[i])    
+    {
+      card_id = i;
+      Time_2[i] = T2;
+      Serial.print("Initial time : ");
+      Serial.println(Time_1[card_id]);
+
+      Serial.print("End time : ");
+      Serial.println(Time_2[card_id]);
+
+     //  if(Time_1[card_id] !=0){
+      double x = calculateSpeed();
+      Serial.print("speed of the vehicle is : ");
+
+      Serial.print(x);
+      Serial.println("  km/hr");
+      if (x > 60) {
+        Serial.println("Actual set Velocity : 60 km/hr ");
+        sendSms();
+        Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ");
+        count -= 1;
+      }
+      //}
+
+      delay(1000);
+      if(count == 0){
+      flag1 = 0;
+      flag2 = 0;
+      }
+
+    }
+  }
+
+}
